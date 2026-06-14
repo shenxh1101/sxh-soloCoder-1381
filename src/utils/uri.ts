@@ -113,6 +113,12 @@ export function validateOtpAuthUri(uri: string): UriValidationResult {
       if (digits === '') {
         paramErrors.digits = 'digits 为空值';
         errors.push(paramErrors.digits);
+      } else if (!/^\d+$/.test(digits.trim())) {
+        paramErrors.digits = `digits 含有非数字字符："${digits}"，必须是纯整数`;
+        errors.push(paramErrors.digits);
+      } else if (digits.trim() !== digits) {
+        paramErrors.digits = `digits 含有多余空白字符："${digits}"`;
+        errors.push(paramErrors.digits);
       } else {
         const d = parseInt(digits, 10);
         if (isNaN(d)) {
@@ -132,6 +138,12 @@ export function validateOtpAuthUri(uri: string): UriValidationResult {
     if (period !== null) {
       if (period === '') {
         paramErrors.period = 'period 为空值';
+        errors.push(paramErrors.period);
+      } else if (!/^\d+$/.test(period.trim())) {
+        paramErrors.period = `period 含有非数字字符："${period}"，必须是纯整数秒数`;
+        errors.push(paramErrors.period);
+      } else if (period.trim() !== period) {
+        paramErrors.period = `period 含有多余空白字符："${period}"`;
         errors.push(paramErrors.period);
       } else {
         const p = parseInt(period, 10);
@@ -157,12 +169,22 @@ export function validateOtpAuthUri(uri: string): UriValidationResult {
       if (algorithm === '') {
         paramErrors.algorithm = 'algorithm 为空值';
         errors.push(paramErrors.algorithm);
+      } else if (algorithm.trim() !== algorithm) {
+        paramErrors.algorithm = `algorithm 含有多余空白字符："${algorithm}"`;
+        errors.push(paramErrors.algorithm);
       } else if (!VALID_ALGORITHMS.includes(algorithm.toUpperCase())) {
-        paramErrors.algorithm = `algorithm 不支持 "${algorithm}"，仅允许：SHA1, SHA256, SHA512`;
+        paramErrors.algorithm = `algorithm 不支持 "${algorithm}"，仅允许：SHA1, SHA256, SHA512（大小写均可）`;
         errors.push(paramErrors.algorithm);
       } else if (!['SHA1', 'SHA-1'].includes(algorithm.toUpperCase())) {
         warnings.push(`algorithm=${algorithm} 为非默认值，Google Authenticator 可能不支持`);
       }
+    }
+
+    // 组合合理性校验
+    const alg = (algorithm || '').toUpperCase().replace('-', '');
+    const dParsed = digits ? parseInt(digits, 10) : 6;
+    if (alg === 'SHA1' && dParsed > 6) {
+      warnings.push('SHA-1 搭配 7/8 位码在部分客户端中兼容性较差');
     }
 
     // issuer 参数一致性检查

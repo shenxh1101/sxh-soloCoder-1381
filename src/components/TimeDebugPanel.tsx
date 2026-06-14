@@ -16,8 +16,13 @@ import {
   Trash2,
   PlusCircle,
   GripVertical,
+  List,
+  History,
+  ChevronDown,
+  ChevronUp,
+  ArrowRight,
 } from 'lucide-react';
-import type { TimeScriptStep } from '@/store/useTotpStore';
+import type { TimeScriptStep, PlaybackTraceStep } from '@/store/useTotpStore';
 
 type TimeMode = 'live' | 'custom';
 type ScriptMode = 'preset' | 'custom';
@@ -101,6 +106,7 @@ export function TimeDebugPanel() {
     pausePlayback,
     stopPlayback,
     advancePlayback,
+    clearPlaybackTrace,
   } = useTotpStore();
 
   const [mode, setMode] = useState<TimeMode>('live');
@@ -108,10 +114,12 @@ export function TimeDebugPanel() {
   const [customDateTime, setCustomDateTime] = useState<string>('');
   const [scriptMode, setScriptMode] = useState<ScriptMode>('preset');
   const [showScriptPanel, setShowScriptPanel] = useState(false);
+  const [showTrace, setShowTrace] = useState(false);
   const [newStepAction, setNewStepAction] = useState<TimeScriptStep['action']>('offset');
   const [newStepValue, setNewStepValue] = useState<string>('10');
   const [newStepUnit, setNewStepUnit] = useState<TimeScriptStep['unit']>('s');
   const playbackTimerRef = useRef<number | null>(null);
+  const waitTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -127,20 +135,31 @@ export function TimeDebugPanel() {
   }, [mode, setCustomTime]);
 
   useEffect(() => {
-    if (playback.isPlaying && !playback.isPaused) {
-      const interval = Math.max(100, 1000 / playback.speed);
-      playbackTimerRef.current = window.setInterval(() => {
-        advancePlayback();
-      }, interval);
-    } else if (playbackTimerRef.current) {
-      clearInterval(playbackTimerRef.current);
-      playbackTimerRef.current = null;
+    function scheduleNext(delay?: number) {
+      if (waitTimerRef.current) {
+        clearTimeout(waitTimerRef.current);
+        waitTimerRef.current = null;
+      }
+      if (playbackTimerRef.current) {
+        clearTimeout(playbackTimerRef.current);
+        playbackTimerRef.current = null;
+      }
+      if (!playback.isPlaying || playback.isPaused) return;
+      const useDelay = delay ?? Math.max(100, 1000 / playback.speed);
+      playbackTimerRef.current = window.setTimeout(() => {
+        const res = advancePlayback();
+        if (res && !res.completed) {
+          scheduleNext(res.waitMs);
+        }
+      }, useDelay);
     }
 
+    if (playback.isPlaying && !playback.isPaused) {
+      scheduleNext();
+    }
     return () => {
-      if (playbackTimerRef.current) {
-        clearInterval(playbackTimerRef.current);
-      }
+      if (waitTimerRef.current) clearTimeout(waitTimerRef.current);
+      if (playbackTimerRef.current) clearTimeout(playbackTimerRef.current);
     };
   }, [playback.isPlaying, playback.isPaused, playback.speed, advancePlayback]);
 
@@ -577,21 +596,18 @@ export function TimeDebugPanel() {
                   <div className="flex gap-1 bg-slate-800/50 rounded-lg p-1">
                     {!playback.isPlaying ? (
                       <button
-                        onClick={startPlayback}
+                        onClick={() => startPlayback(playback.currentStepIndex > 0 && playback.currentStepIndex < formattedSteps.length)}
                         disabled={formattedSteps.length === 0}
-                        className="p-1.5 bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed rounded-md text-white transition-all"
-                        title="播放"
+                        className="p-1.5 bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed rounded-md text-white transition-all flex items-center gap-1"
+                        title={playback.currentStepIndex > 0 ? '从当前位置继续播放' : '从头开始播放'}
                       >
                         <Play size={14} />
                       </button>
                     ) : playback.isPaused ? (
                       <button
-                        onClick={() => {
-                          pausePlayback();
-                          startPlayback();
-                        }}
+                        onClick={() => startPlayback(true)}
                         className="p-1.5 bg-emerald-600 hover:bg-emerald-500 rounded-md text-white transition-all"
-                        title="继续"
+                        title="继续播放"
                       >
                         <Play size={14} />
                       </button>
@@ -599,7 +615,7 @@ export function TimeDebugPanel() {
                       <button
                         onClick={pausePlayback}
                         className="p-1.5 bg-amber-600 hover:bg-amber-500 rounded-md text-white transition-all"
-                        title="暂停"
+                        title="暂停（后续继续从当前位置播放）"
                       >
                         <Pause size={14} />
                       </button>
@@ -646,12 +662,82 @@ export function TimeDebugPanel() {
 
                   <button
                     onClick={clearPlaybackSteps}
-                    className="ml-auto p-1.5 bg-slate-800/50 hover:bg-rose-500/20 hover:text-rose-400 border border-slate-700 rounded-lg text-slate-400 transition-all"
+                    className="p-1.5 bg-slate-800/50 hover:bg-rose-500/20 hover:text-rose-400 border border-slate-700 rounded-lg text-slate-400 transition-all"
                     title="清空脚本"
                   >
                     <Trash2 size={12} />
                   </button>
+
+                  <button
+                    onClick={() => setShowTrace(!showTrace)}
+                    className={`p-1.5 rounded-lg border transition-all flex items-center gap-1 ${
+                      showTrace
+                        ? 'bg-cyan-600/30 text-cyan-400 border-cyan-500/40'
+                        : 'bg-slate-800/50 text-slate-400 hover:text-white border-slate-700'
+                    }`}
+                    title="查看执行轨迹"
+                  >
+                    <History size={12} />
+                    {playback.trace.length > 0 && (
+                      <span className="text-[10px] font-mono">{playback.trace.length}</span>
+                    )}
+                  </button>
+
+                  {playback.trace.length > 0 && (
+                    <button
+                      onClick={clearPlaybackTrace}
+                      className="p-1.5 bg-slate-800/50 hover:bg-rose-500/20 hover:text-rose-400 border border-slate-700 rounded-lg text-slate-400 transition-all"
+                      title="清空轨迹"
+                    >
+                      <Trash2 size={12} />
+                    </button>
+                  )}
                 </div>
+
+                {showTrace && playback.trace.length > 0 && (
+                  <div className="bg-slate-900/60 border border-slate-700/50 rounded-lg overflow-hidden">
+                    <div className="flex items-center justify-between px-3 py-2 bg-slate-800/40 border-b border-slate-700/50">
+                      <span className="text-[11px] font-medium text-slate-300 flex items-center gap-1">
+                        <List size={11} />
+                        执行轨迹 · 共 {playback.trace.length} 步
+                      </span>
+                    </div>
+                    <div className="max-h-40 overflow-y-auto">
+                      {playback.trace.map((t: PlaybackTraceStep, i: number) => (
+                        <div
+                          key={t.id}
+                          className="flex items-center gap-2 px-3 py-1.5 text-[11px] border-b border-slate-800 last:border-0"
+                        >
+                          <span className="text-slate-600 font-mono w-6 text-right">{i + 1}.</span>
+                          <span
+                            className={`px-1.5 py-0.5 rounded text-[10px] ${
+                              t.action === 'wait'
+                                ? 'bg-amber-500/20 text-amber-400'
+                                : t.action === 'jump'
+                                ? 'bg-cyan-500/20 text-cyan-400'
+                                : 'bg-emerald-500/20 text-emerald-400'
+                            }`}
+                          >
+                            {t.action === 'wait' ? '等待' : t.action === 'jump' ? '跳到' : '偏移'}
+                          </span>
+                          <span className="text-slate-300 font-mono">
+                            {t.value}
+                            {t.unit === 'period' ? '周期' : t.unit}
+                          </span>
+                          <ArrowRight size={10} className="text-slate-600" />
+                          <span className="text-slate-400 font-mono">
+                            {new Date(t.effectiveTimeAfter).toLocaleTimeString()}
+                          </span>
+                          {t.durationMs > 0 && (
+                            <span className="ml-auto text-slate-500 text-[10px]">
+                              等待 {(t.durationMs / 1000).toFixed(2)}s
+                            </span>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
 
                 {playback.isPlaying && (
                   <div className="bg-cyan-500/10 border border-cyan-500/30 rounded-lg p-2 text-xs text-cyan-300 flex items-center justify-between">

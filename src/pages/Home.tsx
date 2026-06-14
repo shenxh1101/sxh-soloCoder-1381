@@ -6,7 +6,8 @@ import { QrCodeSection } from '@/components/QrCodeSection';
 import { TimeDebugPanel } from '@/components/TimeDebugPanel';
 import { RfcTestPanel } from '@/components/RfcTestPanel';
 import { BatchTestPanel } from '@/components/BatchTestPanel';
-import { Shield, Clock, Hash, Key, BookOpen, Timer, Sparkles, Play, Table } from 'lucide-react';
+import { DualClockPanel } from '@/components/DualClockPanel';
+import { Shield, Clock, Hash, Key, BookOpen, Timer, Sparkles, Play, Table, ArrowLeftRight } from 'lucide-react';
 
 export default function Home() {
   return (
@@ -40,6 +41,7 @@ export default function Home() {
             <ParamsSettings />
             <TimeDebugPanel />
             <Verification />
+            <DualClockPanel />
             <BatchTestPanel />
           </div>
 
@@ -97,7 +99,7 @@ export default function Home() {
                 </div>
                 <div>
                   <div className="text-xs font-medium text-slate-200">批量回归</div>
-                  <div className="text-[10px] text-slate-500">多 URI / 密钥组测试</div>
+                  <div className="text-[10px] text-slate-500">方案库 + 快照</div>
                 </div>
               </div>
               <div className="card-glass rounded-xl p-3.5 flex items-center gap-3 hover:border-amber-500/30 transition-all cursor-default">
@@ -106,7 +108,16 @@ export default function Home() {
                 </div>
                 <div>
                   <div className="text-xs font-medium text-slate-200">时间脚本</div>
-                  <div className="text-[10px] text-slate-500">自动步进演示</div>
+                  <div className="text-[10px] text-slate-500">暂停续播 + 轨迹</div>
+                </div>
+              </div>
+              <div className="card-glass rounded-xl p-3.5 flex items-center gap-3 hover:border-teal-500/30 transition-all cursor-default col-span-2">
+                <div className="p-2 bg-teal-500/10 rounded-lg">
+                  <ArrowLeftRight size={18} className="text-teal-400" />
+                </div>
+                <div>
+                  <div className="text-xs font-medium text-slate-200">双端时钟漂移</div>
+                  <div className="text-[10px] text-slate-500">设备 A/B 独立时间/步长/算法对照</div>
                 </div>
               </div>
             </div>

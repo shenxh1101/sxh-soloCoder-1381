@@ -446,14 +446,25 @@ export function Verification() {
                               </code>
                             </div>
                             {h.codeAtOffset && h.offset !== null && h.offset !== 0 && (
-                              <div className="flex items-center gap-2">
-                                <AlertCircle size={11} className="text-amber-500" />
-                                <span className="text-amber-400">
-                                  命中窗口 (offset {h.offset}) 标准码：
-                                </span>
-                                <code className="ml-auto font-mono text-amber-400 font-bold tracking-wider">
-                                  {h.codeAtOffset}
-                                </code>
+                              <div className="space-y-1.5">
+                                <div className="flex items-center gap-2">
+                                  <AlertCircle size={11} className="text-amber-500" />
+                                  <span className="text-amber-400">
+                                    命中窗口 (offset {h.offset > 0 ? '+' : ''}{h.offset}) 标准码：
+                                  </span>
+                                  <code className="ml-auto font-mono text-amber-400 font-bold tracking-wider">
+                                    {h.codeAtOffset}
+                                  </code>
+                                </div>
+                                {h.hitWindowTimestamp !== null && (
+                                  <div className="flex items-center gap-2 pl-6">
+                                    <Clock3 size={11} className="text-slate-500" />
+                                    <span className="text-slate-400">对应时间点：</span>
+                                    <code className="ml-auto font-mono text-slate-300 text-[10px]">
+                                      {formatFullTime(h.hitWindowTimestamp)}
+                                    </code>
+                                  </div>
+                                )}
                               </div>
                             )}
                             {h.offset === null && (
