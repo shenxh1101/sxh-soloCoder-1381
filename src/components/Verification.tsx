@@ -10,10 +10,16 @@ import {
   History,
   Trash2,
   ChevronDown,
+  ChevronRight,
   ChevronUp,
   Shield,
   Clock,
   Gauge,
+  AlertCircle,
+  Target,
+  Hash,
+  Clock3,
+  KeyRound,
 } from 'lucide-react';
 
 type VerificationStatus = 'idle' | 'success' | 'error';
@@ -36,8 +42,8 @@ export function Verification() {
   const [status, setStatus] = useState<VerificationStatus>('idle');
   const [offset, setOffset] = useState<number | null>(null);
   const [isVerifying, setIsVerifying] = useState(false);
-  const [showHistory, setShowHistory] = useState(true);
   const [historyCollapsed, setHistoryCollapsed] = useState(true);
+  const [expandedHistoryId, setExpandedHistoryId] = useState<string | null>(null);
   const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
 
   const handleInputChange = (index: number, value: string) => {
@@ -120,16 +126,16 @@ export function Verification() {
         setOffset(null);
       }
 
-      addVerificationHistory({
+      void addVerificationHistory({
         input: token,
         valid: result.valid,
         offset: result.offset,
         window: verifyWindow,
+        period,
+        digits,
+        algorithm,
+        secret,
       });
-
-      if (verificationHistory.length === 0) {
-        setShowHistory(true);
-      }
     } catch {
       setStatus('error');
     } finally {
@@ -164,6 +170,14 @@ export function Verification() {
     if (o === null) return 'bg-slate-700/60 text-slate-400';
     if (o === 0) return 'bg-emerald-900/40 text-emerald-400';
     return 'bg-amber-900/40 text-amber-400';
+  }
+
+  function formatFullTime(ts: number): string {
+    return new Date(ts).toLocaleString();
+  }
+
+  function algoLabel(a: string): string {
+    return a.replace('SHA-', 'SHA');
   }
 
   return (
@@ -325,7 +339,7 @@ export function Verification() {
           >
             <span className="text-sm font-medium text-slate-200 flex items-center gap-2">
               <History size={14} className="text-slate-400" />
-              验证历史
+              验证历史 · 对比视图
               <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-slate-700 text-slate-400">
                 {verificationHistory.length}
               </span>
@@ -340,51 +354,123 @@ export function Verification() {
           {!historyCollapsed && (
             <div className="animate-fade-in space-y-2">
               <div className="flex items-center justify-between text-[10px] uppercase tracking-wider text-slate-500 px-2">
-                <div className="flex items-center gap-8">
-                  <span>时间</span>
-                  <span>输入</span>
-                </div>
-                <div className="flex items-center gap-8">
-                  <span>命中窗口</span>
-                </div>
+                <span>验证记录</span>
+                <span>详情</span>
               </div>
-              <div className="max-h-[240px] overflow-y-auto space-y-1 pr-1">
+              <div className="max-h-[320px] overflow-y-auto space-y-1.5 pr-1">
                 {verificationHistory.map((h) => (
                   <div
                     key={h.id}
-                    className={`flex items-center justify-between px-3 py-2 rounded-lg text-sm transition-all ${
+                    className={`rounded-lg text-sm transition-all overflow-hidden ${
                       h.valid
                         ? 'bg-emerald-500/5 border border-emerald-500/10'
                         : 'bg-rose-500/5 border border-rose-500/10'
                     }`}
                   >
-                    <div className="flex items-center gap-4">
-                      <span className="text-[11px] text-slate-500 font-mono flex items-center gap-1">
-                        <Clock size={11} />
-                        {formatTime(h.timestamp)}
-                      </span>
-                      <code
-                        className={`font-mono tracking-wider ${
-                          h.valid ? 'text-emerald-300' : 'text-rose-300'
-                        }`}
-                      >
-                        {h.input}
-                      </code>
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <span
-                        className={`text-[10px] font-mono px-2 py-0.5 rounded-full ${offsetBadgeClass(
-                          h.offset
-                        )}`}
-                      >
-                        {offsetLabel(h.offset)}
-                      </span>
-                      {h.valid ? (
-                        <CheckCircle size={13} className="text-emerald-400" />
-                      ) : (
-                        <XCircle size={13} className="text-rose-400" />
-                      )}
-                    </div>
+                    <button
+                      onClick={() =>
+                        setExpandedHistoryId(expandedHistoryId === h.id ? null : h.id)
+                      }
+                      className="w-full flex items-center justify-between px-3 py-2.5"
+                    >
+                      <div className="flex items-center gap-3">
+                        <span className="text-[11px] text-slate-500 font-mono flex items-center gap-1">
+                          <Clock size={11} />
+                          {formatTime(h.timestamp)}
+                        </span>
+                        <code
+                          className={`font-mono tracking-wider ${
+                            h.valid ? 'text-emerald-300' : 'text-rose-300'
+                          }`}
+                        >
+                          {h.input}
+                        </code>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span
+                          className={`text-[10px] font-mono px-2 py-0.5 rounded-full ${offsetBadgeClass(
+                            h.offset
+                          )}`}
+                        >
+                          {offsetLabel(h.offset)}
+                        </span>
+                        {h.valid ? (
+                          <CheckCircle size={13} className="text-emerald-400" />
+                        ) : (
+                          <XCircle size={13} className="text-rose-400" />
+                        )}
+                        {expandedHistoryId === h.id ? (
+                          <ChevronDown size={12} className="text-slate-400" />
+                        ) : (
+                          <ChevronRight size={12} className="text-slate-400" />
+                        )}
+                      </div>
+                    </button>
+
+                    {expandedHistoryId === h.id && (
+                      <div className="px-3 pb-3 space-y-2 animate-fade-in">
+                        <div className="bg-slate-800/60 rounded-lg p-3 space-y-2 text-[11px]">
+                          <div className="flex items-center gap-4">
+                            <div className="flex items-center gap-1 text-slate-500">
+                              <Target size={11} />
+                              验证时间：
+                            </div>
+                            <span className="font-mono text-slate-300">
+                              {formatFullTime(h.effectiveTimestamp)}
+                            </span>
+                          </div>
+
+                          <div className="grid grid-cols-2 gap-2">
+                            <div className="flex items-center gap-1.5">
+                              <Hash size={11} className="text-slate-500" />
+                              <span className="text-slate-400">算法：</span>
+                              <span className="font-mono text-slate-300">
+                                {algoLabel(h.algorithm)}
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-1.5">
+                              <Clock3 size={11} className="text-slate-500" />
+                              <span className="text-slate-400">周期：</span>
+                              <span className="font-mono text-slate-300">
+                                {h.period}s / {h.digits}位
+                              </span>
+                            </div>
+                          </div>
+
+                          <div className="border-t border-slate-700/50 pt-2 space-y-1.5">
+                            <div className="flex items-center gap-2">
+                              <KeyRound size={11} className="text-slate-500" />
+                              <span className="text-slate-400">当前窗口标准码：</span>
+                              <code className="ml-auto font-mono text-emerald-400 font-bold tracking-wider">
+                                {h.standardCode}
+                              </code>
+                            </div>
+                            {h.codeAtOffset && h.offset !== null && h.offset !== 0 && (
+                              <div className="flex items-center gap-2">
+                                <AlertCircle size={11} className="text-amber-500" />
+                                <span className="text-amber-400">
+                                  命中窗口 (offset {h.offset}) 标准码：
+                                </span>
+                                <code className="ml-auto font-mono text-amber-400 font-bold tracking-wider">
+                                  {h.codeAtOffset}
+                                </code>
+                              </div>
+                            )}
+                            {h.offset === null && (
+                              <div className="flex items-center gap-2">
+                                <AlertCircle size={11} className="text-rose-500" />
+                                <span className="text-rose-400">未命中任何窗口</span>
+                              </div>
+                            )}
+                            {!h.valid && (
+                              <div className="mt-1 text-slate-500 text-[10px] pl-6">
+                                排查方向：检查密钥是否匹配，或时间偏差是否超出容错范围 (±{h.window})
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>

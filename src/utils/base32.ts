@@ -57,3 +57,85 @@ export function isValidBase32(str: string): boolean {
   const cleaned = str.toUpperCase().replace(/\s/g, '');
   return /^[A-Z2-7]+=*$/.test(cleaned) && cleaned.length > 0;
 }
+
+export interface Base32ValidationResult {
+  valid: boolean;
+  errors: string[];
+  warnings: string[];
+  invalidPositions: number[];
+  invalidChars: string[];
+  cleaned: string;
+}
+
+export function validateBase32(str: string): Base32ValidationResult {
+  const errors: string[] = [];
+  const warnings: string[] = [];
+  const invalidPositions: number[] = [];
+  const invalidChars: string[] = [];
+
+  if (!str || str.trim().length === 0) {
+    return {
+      valid: false,
+      errors: ['密钥不能为空'],
+      warnings: [],
+      invalidPositions: [],
+      invalidChars: [],
+      cleaned: '',
+    };
+  }
+
+  const cleanedNoSpaces = str.replace(/\s/g, '');
+  const upper = cleanedNoSpaces.toUpperCase();
+
+  for (let i = 0; i < upper.length; i++) {
+    const ch = upper[i];
+    if (!/^[A-Z2-7=]$/.test(ch)) {
+      invalidPositions.push(i);
+      if (!invalidChars.includes(ch)) {
+        invalidChars.push(ch);
+      }
+    }
+  }
+
+  if (invalidPositions.length > 0) {
+    const positions = invalidPositions.slice(0, 5).map((p) => `第${p + 1}位`).join('、');
+    const chars = [...new Set(invalidChars)].map((c) => `"${c}"`).join('、');
+    errors.push(
+      `包含无效字符 ${chars}（位置：${positions}${invalidPositions.length > 5 ? '...' : ''}）`
+    );
+  }
+
+  const cleanUpper = upper.replace(/[^A-Z2-7=]/g, '');
+
+  if (cleanUpper.length < 4 && cleanUpper.length > 0) {
+    errors.push(`密钥过短（${cleanUpper.length} 位），至少需要 4 个 Base32 字符`);
+  }
+
+  if (cleanUpper.includes('=')) {
+    const paddingIndex = cleanUpper.indexOf('=');
+    const afterPadding = cleanUpper.slice(paddingIndex).replace(/=/g, '');
+    if (afterPadding.length > 0) {
+      errors.push('填充符 "=" 只能出现在末尾');
+    }
+    if (cleanUpper.length % 8 !== 0) {
+      warnings.push('填充位置不标准，部分验证器可能不兼容');
+    }
+  }
+
+  if (cleanUpper.length % 2 !== 0) {
+    warnings.push('密钥长度非偶数，可能影响部分验证器兼容性');
+  }
+
+  if (/^\d+$/.test(cleanUpper.slice(0, 2))) {
+    warnings.push('开头连续数字可能与部分旧版验证器不兼容');
+  }
+
+  return {
+    valid: errors.length === 0 && cleanUpper.length >= 4,
+    errors,
+    warnings,
+    invalidPositions,
+    invalidChars,
+    cleaned: cleanUpper,
+  };
+}

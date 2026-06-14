@@ -1,7 +1,8 @@
 import { useTotpStore, getEffectiveNow } from '@/store/useTotpStore';
 import { useTotp } from '@/hooks/useTotp';
 import { RefreshCw, Copy, Check, Clock, AlertTriangle } from 'lucide-react';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
+import { validateBase32 } from '@/utils/base32';
 
 export function TotpDisplay() {
   const {
@@ -11,8 +12,10 @@ export function TotpDisplay() {
     algorithm,
     timeOffset,
     customTime,
-    secretError,
   } = useTotpStore();
+
+  const secretValidation = useMemo(() => validateBase32(secret), [secret]);
+  const secretError = secretValidation.errors[0] || null;
   const { token, remainingSeconds, progress, isLoading } = useTotp(
     secret,
     digits,

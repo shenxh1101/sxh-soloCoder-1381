@@ -5,7 +5,8 @@ import { Verification } from '@/components/Verification';
 import { QrCodeSection } from '@/components/QrCodeSection';
 import { TimeDebugPanel } from '@/components/TimeDebugPanel';
 import { RfcTestPanel } from '@/components/RfcTestPanel';
-import { Shield, Clock, Hash, Key, BookOpen, Timer, Sparkles } from 'lucide-react';
+import { BatchTestPanel } from '@/components/BatchTestPanel';
+import { Shield, Clock, Hash, Key, BookOpen, Timer, Sparkles, Play, Table } from 'lucide-react';
 
 export default function Home() {
   return (
@@ -39,6 +40,7 @@ export default function Home() {
             <ParamsSettings />
             <TimeDebugPanel />
             <Verification />
+            <BatchTestPanel />
           </div>
 
           {/* Right Column - Display & QR */}
@@ -77,7 +79,7 @@ export default function Home() {
                 </div>
                 <div>
                   <div className="text-xs font-medium text-slate-200">时间调试</div>
-                  <div className="text-[10px] text-slate-500">偏移/绝对时间控制</div>
+                  <div className="text-[10px] text-slate-500">偏移/绝对/脚本播放</div>
                 </div>
               </div>
               <div className="card-glass rounded-xl p-3.5 flex items-center gap-3 hover:border-indigo-500/30 transition-all cursor-default">
@@ -87,6 +89,24 @@ export default function Home() {
                 <div>
                   <div className="text-xs font-medium text-slate-200">RFC 自检</div>
                   <div className="text-[10px] text-slate-500">18 组标准向量</div>
+                </div>
+              </div>
+              <div className="card-glass rounded-xl p-3.5 flex items-center gap-3 hover:border-rose-500/30 transition-all cursor-default">
+                <div className="p-2 bg-rose-500/10 rounded-lg">
+                  <Table size={18} className="text-rose-400" />
+                </div>
+                <div>
+                  <div className="text-xs font-medium text-slate-200">批量回归</div>
+                  <div className="text-[10px] text-slate-500">多 URI / 密钥组测试</div>
+                </div>
+              </div>
+              <div className="card-glass rounded-xl p-3.5 flex items-center gap-3 hover:border-amber-500/30 transition-all cursor-default">
+                <div className="p-2 bg-amber-500/10 rounded-lg">
+                  <Play size={18} className="text-amber-400" />
+                </div>
+                <div>
+                  <div className="text-xs font-medium text-slate-200">时间脚本</div>
+                  <div className="text-[10px] text-slate-500">自动步进演示</div>
                 </div>
               </div>
             </div>
