@@ -35,7 +35,7 @@ function dynamicTruncate(hmacResult: Uint8Array): number {
     ((hmacResult[offset + 1] & 0xff) << 16) |
     ((hmacResult[offset + 2] & 0xff) << 8) |
     (hmacResult[offset + 3] & 0xff);
-  return binary;
+  return binary >>> 0;
 }
 
 export async function generateTOTP(
@@ -49,24 +49,36 @@ export async function generateTOTP(
     timestamp = Date.now(),
   } = options;
 
-  const counter = Math.floor(timestamp / 1000 / period);
-  const keyBytes = base32Decode(secret);
-  const counterBytes = intToBytes(counter);
+  if (!secret) {
+    return ''.padStart(digits, '0');
+  }
 
-  const hmacResult = await hmacSha(keyBytes, counterBytes, algorithm);
-  const binaryCode = dynamicTruncate(hmacResult);
-  const token = binaryCode % Math.pow(10, digits);
+  try {
+    const counter = Math.floor(timestamp / 1000 / period);
+    const keyBytes = base32Decode(secret);
 
-  return token.toString().padStart(digits, '0');
+    if (keyBytes.length === 0) {
+      return ''.padStart(digits, '0');
+    }
+
+    const counterBytes = intToBytes(counter);
+    const hmacResult = await hmacSha(keyBytes, counterBytes, algorithm);
+    const binaryCode = dynamicTruncate(hmacResult);
+    const token = binaryCode % Math.pow(10, digits);
+
+    return token.toString().padStart(digits, '0');
+  } catch {
+    return ''.padStart(digits, '0');
+  }
 }
 
 export async function verifyTOTP(
   token: string,
   secret: string,
-  options: TotpOptions & { window?: number } = {}
+  options: TotpOptions & { window?: number; nowTimestamp?: number } = {}
 ): Promise<{ valid: boolean; offset: number | null }> {
-  const { window = 0, period = 30, ...rest } = options;
-  const currentTime = Date.now();
+  const { window = 0, period = 30, nowTimestamp, ...rest } = options;
+  const currentTime = nowTimestamp ?? Date.now();
 
   for (let offset = -window; offset <= window; offset++) {
     const timestamp = currentTime + offset * period * 1000;
@@ -79,16 +91,16 @@ export async function verifyTOTP(
   return { valid: false, offset: null };
 }
 
-export function getRemainingSeconds(period: number = 30): number {
-  const now = Date.now() / 1000;
-  return period - (now % period);
+export function getRemainingSeconds(period: number = 30, now?: number): number {
+  const t = (now ?? Date.now()) / 1000;
+  return period - (t % period);
 }
 
-export function getProgress(period: number = 30): number {
-  const now = Date.now() / 1000;
-  return ((now % period) / period) * 100;
+export function getProgress(period: number = 30, now?: number): number {
+  const t = (now ?? Date.now()) / 1000;
+  return ((t % period) / period) * 100;
 }
 
-export function getTimeWindow(period: number = 30): number {
-  return Math.floor(Date.now() / 1000 / period);
+export function getTimeWindow(period: number = 30, now?: number): number {
+  return Math.floor((now ?? Date.now()) / 1000 / period);
 }

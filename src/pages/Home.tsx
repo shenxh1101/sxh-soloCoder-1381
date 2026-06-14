@@ -3,69 +3,102 @@ import { ParamsSettings } from '@/components/ParamsSettings';
 import { TotpDisplay } from '@/components/TotpDisplay';
 import { Verification } from '@/components/Verification';
 import { QrCodeSection } from '@/components/QrCodeSection';
-import { Shield, Clock, Hash, QrCode, Key } from 'lucide-react';
+import { TimeDebugPanel } from '@/components/TimeDebugPanel';
+import { RfcTestPanel } from '@/components/RfcTestPanel';
+import { Shield, Clock, Hash, Key, BookOpen, Timer, Sparkles } from 'lucide-react';
 
 export default function Home() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900">
       <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-emerald-900/20 via-transparent to-transparent pointer-events-none"></div>
+      <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_bottom_right,_var(--tw-gradient-stops))] from-indigo-900/10 via-transparent to-transparent pointer-events-none"></div>
 
-      <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
+      <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Header */}
-        <header className="text-center mb-10">
-          <div className="inline-flex items-center gap-3 mb-4">
-            <div className="p-3 bg-emerald-500/20 rounded-2xl">
-              <Shield className="w-8 h-8 text-emerald-400" />
+        <header className="text-center mb-8">
+          <div className="inline-flex items-center gap-3 mb-3">
+            <div className="p-3 bg-emerald-500/20 rounded-2xl border border-emerald-500/30">
+              <Shield className="w-7 h-7 text-emerald-400" />
             </div>
-            <h1 className="text-3xl sm:text-4xl font-bold bg-gradient-to-r from-emerald-400 to-cyan-400 bg-clip-text text-transparent">
+            <h1 className="text-3xl sm:text-4xl font-bold bg-gradient-to-r from-emerald-400 via-cyan-400 to-indigo-400 bg-clip-text text-transparent">
               TOTP 验证器演示
             </h1>
           </div>
-          <p className="text-slate-400 max-w-2xl mx-auto">
+          <p className="text-slate-400 max-w-2xl mx-auto text-sm">
             基于时间戳的一次性密码（Time-based One-Time Password）在线演示工具
-            <br />
-            支持 Google Authenticator、Authy 等主流双因素认证应用
+            <br className="hidden sm:block" />
+            支持 Google Authenticator · RFC 6238 标准 · 完整调试能力
           </p>
         </header>
 
         {/* Main Content */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* Left Column - Settings */}
+          {/* Left Column - Settings & Debug */}
           <div className="space-y-6">
             <KeyManager />
             <ParamsSettings />
+            <TimeDebugPanel />
             <Verification />
           </div>
 
-          {/* Right Column - Display */}
+          {/* Right Column - Display & QR */}
           <div className="space-y-6">
             <TotpDisplay />
             <QrCodeSection />
 
-            {/* Info Cards */}
-            <div className="grid grid-cols-3 gap-4">
-              <div className="card-glass rounded-xl p-4 text-center">
-                <Clock className="w-6 h-6 text-blue-400 mx-auto mb-2" />
-                <div className="text-xs text-slate-400">时间同步</div>
-                <div className="text-sm font-medium text-slate-200">NTP 标准</div>
+            <div className="grid grid-cols-3 gap-3">
+              <div className="card-glass rounded-xl p-3.5 text-center group hover:border-blue-500/30 transition-all cursor-default">
+                <Clock className="w-5 h-5 text-blue-400 mx-auto mb-1.5 group-hover:scale-110 transition-transform" />
+                <div className="text-[10px] uppercase tracking-wider text-slate-500 mb-0.5">
+                  Time Sync
+                </div>
+                <div className="text-xs font-medium text-slate-200">NTP 标准</div>
               </div>
-              <div className="card-glass rounded-xl p-4 text-center">
-                <Hash className="w-6 h-6 text-emerald-400 mx-auto mb-2" />
-                <div className="text-xs text-slate-400">算法标准</div>
-                <div className="text-sm font-medium text-slate-200">RFC 6238</div>
+              <div className="card-glass rounded-xl p-3.5 text-center group hover:border-emerald-500/30 transition-all cursor-default">
+                <Hash className="w-5 h-5 text-emerald-400 mx-auto mb-1.5 group-hover:scale-110 transition-transform" />
+                <div className="text-[10px] uppercase tracking-wider text-slate-500 mb-0.5">
+                  Algorithm
+                </div>
+                <div className="text-xs font-medium text-slate-200">RFC 6238</div>
               </div>
-              <div className="card-glass rounded-xl p-4 text-center">
-                <Key className="w-6 h-6 text-purple-400 mx-auto mb-2" />
-                <div className="text-xs text-slate-400">密钥格式</div>
-                <div className="text-sm font-medium text-slate-200">Base32</div>
+              <div className="card-glass rounded-xl p-3.5 text-center group hover:border-purple-500/30 transition-all cursor-default">
+                <Key className="w-5 h-5 text-purple-400 mx-auto mb-1.5 group-hover:scale-110 transition-transform" />
+                <div className="text-[10px] uppercase tracking-wider text-slate-500 mb-0.5">
+                  Key Format
+                </div>
+                <div className="text-xs font-medium text-slate-200">Base32</div>
               </div>
             </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div className="card-glass rounded-xl p-3.5 flex items-center gap-3 hover:border-cyan-500/30 transition-all cursor-default">
+                <div className="p-2 bg-cyan-500/10 rounded-lg">
+                  <Timer size={18} className="text-cyan-400" />
+                </div>
+                <div>
+                  <div className="text-xs font-medium text-slate-200">时间调试</div>
+                  <div className="text-[10px] text-slate-500">偏移/绝对时间控制</div>
+                </div>
+              </div>
+              <div className="card-glass rounded-xl p-3.5 flex items-center gap-3 hover:border-indigo-500/30 transition-all cursor-default">
+                <div className="p-2 bg-indigo-500/10 rounded-lg">
+                  <Sparkles size={18} className="text-indigo-400" />
+                </div>
+                <div>
+                  <div className="text-xs font-medium text-slate-200">RFC 自检</div>
+                  <div className="text-[10px] text-slate-500">18 组标准向量</div>
+                </div>
+              </div>
+            </div>
+
+            <RfcTestPanel />
           </div>
         </div>
 
         {/* Footer */}
-        <footer className="mt-12 text-center text-slate-500 text-sm">
-          <p>仅供学习和演示用途 · 所有计算均在浏览器本地完成</p>
+        <footer className="mt-10 text-center text-slate-600 text-xs space-y-1">
+          <p>仅供学习和演示用途 · 所有计算均在浏览器本地完成 · Web Crypto API</p>
+          <p>参考标准：RFC 6238 (TOTP) · RFC 4226 (HOTP) · Key URI Format (Google)</p>
         </footer>
       </div>
     </div>

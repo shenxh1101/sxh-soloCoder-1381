@@ -1,13 +1,21 @@
 import { useState } from 'react';
-import { Copy, Dices, Upload, Download, Check, X } from 'lucide-react';
+import { Copy, Dices, Upload, Download, Check, X, AlertTriangle, AlertCircle } from 'lucide-react';
 import { useTotpStore } from '@/store/useTotpStore';
+import { validateOtpAuthUri } from '@/utils/uri';
 
 export function KeyManager() {
-  const { secret, setSecret, generateRandomSecret, importUri, exportUri } = useTotpStore();
+  const {
+    secret,
+    secretError,
+    setSecret,
+    generateRandomSecret,
+    importUri,
+    exportUri,
+  } = useTotpStore();
   const [copied, setCopied] = useState(false);
   const [showImport, setShowImport] = useState(false);
   const [importValue, setImportValue] = useState('');
-  const [importError, setImportError] = useState('');
+  const [importResult, setImportResult] = useState<{ success: boolean; msg: string; type: 'error' | 'warning' | 'success' } | null>(null);
 
   const handleCopySecret = async () => {
     await navigator.clipboard.writeText(secret);
@@ -22,14 +30,30 @@ export function KeyManager() {
     setTimeout(() => setCopied(false), 2000);
   };
 
+  const handleLiveValidate = (value: string) => {
+    setImportValue(value);
+    if (!value) {
+      setImportResult(null);
+      return;
+    }
+    const result = validateOtpAuthUri(value);
+    if (!result.valid) {
+      setImportResult({ success: false, msg: result.errors[0], type: 'error' });
+    } else if (result.warnings.length > 0) {
+      setImportResult({ success: true, msg: result.warnings[0], type: 'warning' });
+    } else {
+      setImportResult({ success: true, msg: 'URI 格式正确，可以导入', type: 'success' });
+    }
+  };
+
   const handleImport = () => {
-    const success = importUri(importValue);
-    if (success) {
+    const result = importUri(importValue);
+    if (result.success) {
       setShowImport(false);
       setImportValue('');
-      setImportError('');
+      setImportResult(null);
     } else {
-      setImportError('无效的 otpauth URI 格式');
+      setImportResult({ success: false, msg: result.error || '导入失败', type: 'error' });
     }
   };
 
@@ -46,9 +70,14 @@ export function KeyManager() {
           <input
             type="text"
             value={secret}
-            onChange={(e) => setSecret(e.target.value.toUpperCase())}
-            className="flex-1 bg-slate-800/50 border border-slate-700 rounded-lg px-4 py-2.5 font-mono text-emerald-400 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500/50 transition-all"
-            placeholder="输入Base32密钥..."
+            onChange={(e) => setSecret(e.target.value)}
+            className={`flex-1 bg-slate-800/50 border rounded-lg px-4 py-2.5 font-mono text-sm focus:outline-none focus:ring-2 transition-all ${
+              secretError
+                ? 'border-red-500 text-red-400 focus:ring-red-500/50 focus:border-red-500/50'
+                : 'border-slate-700 text-emerald-400 focus:ring-emerald-500/50 focus:border-emerald-500/50'
+            }`}
+            placeholder="输入Base32密钥 (A-Z, 2-7)"
+            spellCheck={false}
           />
           <button
             onClick={handleCopySecret}
@@ -66,11 +95,20 @@ export function KeyManager() {
             <span className="text-sm font-medium">生成</span>
           </button>
         </div>
+        {secretError && (
+          <p className="text-red-400 text-sm flex items-start gap-1 animate-fade-in">
+            <AlertCircle size={14} className="mt-0.5 flex-shrink-0" />
+            {secretError}
+          </p>
+        )}
       </div>
 
       <div className="flex gap-2">
         <button
-          onClick={() => setShowImport(!showImport)}
+          onClick={() => {
+            setShowImport(!showImport);
+            setImportResult(null);
+          }}
           className="flex-1 px-4 py-2.5 bg-slate-700/50 hover:bg-slate-700 border border-slate-600 rounded-lg text-slate-300 hover:text-white transition-all flex items-center justify-center gap-2 text-sm"
         >
           <Upload size={16} />
@@ -91,33 +129,53 @@ export function KeyManager() {
             <input
               type="text"
               value={importValue}
-              onChange={(e) => {
-                setImportValue(e.target.value);
-                setImportError('');
-              }}
+              onChange={(e) => handleLiveValidate(e.target.value)}
               placeholder="粘贴 otpauth://totp/... 格式的 URI"
-              className="flex-1 bg-slate-800/50 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/50"
+              className={`flex-1 bg-slate-800/50 border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 transition-all ${
+                importResult?.type === 'error'
+                  ? 'border-red-500 focus:ring-red-500/30'
+                  : importResult?.type === 'success'
+                  ? 'border-emerald-500 focus:ring-emerald-500/30'
+                  : 'border-slate-700 focus:ring-emerald-500/50'
+              }`}
+              spellCheck={false}
             />
             <button
               onClick={handleImport}
-              className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 rounded-lg text-white text-sm font-medium transition-all"
+              disabled={!importResult?.success}
+              className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-700 disabled:text-slate-500 disabled:cursor-not-allowed rounded-lg text-white text-sm font-medium transition-all"
             >
               导入
             </button>
             <button
               onClick={() => {
                 setShowImport(false);
-                setImportError('');
+                setImportResult(null);
+                setImportValue('');
               }}
               className="px-3 py-2 bg-slate-700 hover:bg-slate-600 rounded-lg text-slate-300 transition-all"
             >
               <X size={18} />
             </button>
           </div>
-          {importError && (
-            <p className="text-red-400 text-sm flex items-center gap-1">
-              <X size={14} />
-              {importError}
+          {importResult && (
+            <p
+              className={`text-sm flex items-start gap-1 animate-fade-in ${
+                importResult.type === 'error'
+                  ? 'text-red-400'
+                  : importResult.type === 'warning'
+                  ? 'text-amber-400'
+                  : 'text-emerald-400'
+              }`}
+            >
+              {importResult.type === 'error' ? (
+                <AlertCircle size={14} className="mt-0.5 flex-shrink-0" />
+              ) : importResult.type === 'warning' ? (
+                <AlertTriangle size={14} className="mt-0.5 flex-shrink-0" />
+              ) : (
+                <Check size={14} className="mt-0.5 flex-shrink-0" />
+              )}
+              {importResult.msg}
             </p>
           )}
         </div>

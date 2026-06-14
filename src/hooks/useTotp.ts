@@ -1,6 +1,7 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { generateTOTP, getRemainingSeconds, getProgress, getTimeWindow } from '@/utils/totp';
 import type { HashAlgorithm } from '@/utils/totp';
+import { getEffectiveNow } from '@/store/useTotpStore';
 
 interface UseTotpResult {
   token: string;
@@ -8,21 +9,25 @@ interface UseTotpResult {
   progress: number;
   timeWindow: number;
   isLoading: boolean;
+  effectiveNow: number;
 }
 
 export function useTotp(
   secret: string,
   digits: number = 6,
   period: number = 30,
-  algorithm: HashAlgorithm = 'SHA-1'
+  algorithm: HashAlgorithm = 'SHA-1',
+  autoTick: boolean = true
 ): UseTotpResult {
   const [token, setToken] = useState<string>('');
   const [remainingSeconds, setRemainingSeconds] = useState<number>(0);
   const [progress, setProgress] = useState<number>(0);
   const [timeWindow, setTimeWindow] = useState<number>(0);
   const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [effectiveNow, setEffectiveNow] = useState<number>(0);
+  const lastWindowRef = useRef<number>(-1);
 
-  const updateToken = useCallback(async () => {
+  const updateToken = useCallback(async (now: number) => {
     if (!secret) {
       setToken('');
       setIsLoading(false);
@@ -30,8 +35,12 @@ export function useTotp(
     }
 
     try {
-      const newToken = await generateTOTP(secret, { digits, period, algorithm });
-      setToken(newToken);
+      const window = getTimeWindow(period, now);
+      if (window !== lastWindowRef.current) {
+        lastWindowRef.current = window;
+        const newToken = await generateTOTP(secret, { digits, period, algorithm, timestamp: now });
+        setToken(newToken);
+      }
       setIsLoading(false);
     } catch {
       setToken('');
@@ -40,27 +49,42 @@ export function useTotp(
   }, [secret, digits, period, algorithm]);
 
   useEffect(() => {
+    lastWindowRef.current = -1;
     setIsLoading(true);
-    updateToken();
-  }, [updateToken]);
+    const now = getEffectiveNow();
+    setEffectiveNow(now);
+    updateToken(now);
+  }, [secret, digits, period, algorithm, updateToken]);
 
   useEffect(() => {
-    const interval = setInterval(() => {
-      const remaining = getRemainingSeconds(period);
-      const prog = getProgress(period);
-      const window = getTimeWindow(period);
+    if (!autoTick) return;
 
-      setRemainingSeconds(Math.ceil(remaining));
-      setProgress(prog);
-      setTimeWindow(window);
+    const now = getEffectiveNow();
+    const window = getTimeWindow(period, now);
+    const remaining = getRemainingSeconds(period, now);
+    const prog = getProgress(period, now);
+    setTimeWindow(window);
+    setRemainingSeconds(Math.ceil(remaining));
+    setProgress(prog);
 
-      if (remaining >= period - 0.1 || remaining <= 0.1) {
-        updateToken();
+    const tick = () => {
+      const n = getEffectiveNow();
+      setEffectiveNow(n);
+      const rem = getRemainingSeconds(period, n);
+      const p = getProgress(period, n);
+      const w = getTimeWindow(period, n);
+      setRemainingSeconds(Math.ceil(rem));
+      setProgress(p);
+      setTimeWindow(w);
+      if (rem >= period - 0.15 || rem <= 0.15 || w !== lastWindowRef.current) {
+        updateToken(n);
       }
-    }, 100);
+    };
+
+    const interval = setInterval(tick, 100);
 
     return () => clearInterval(interval);
-  }, [period, updateToken]);
+  }, [period, secret, digits, algorithm, autoTick, updateToken]);
 
   return {
     token,
@@ -68,5 +92,6 @@ export function useTotp(
     progress,
     timeWindow,
     isLoading,
+    effectiveNow,
   };
 }
