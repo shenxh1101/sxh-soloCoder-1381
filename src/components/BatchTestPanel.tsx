@@ -18,17 +18,27 @@ import {
   FolderOpen,
   MoreVertical,
   Clock3,
+  Eye,
+  Zap,
+  Key,
 } from 'lucide-react';
 import { useTotpStore } from '@/store/useTotpStore';
-import type { BatchTestItem, BatchTestSuite } from '@/store/useTotpStore';
+import type { BatchTestItem, BatchTestSuite, BatchTestSnapshot } from '@/store/useTotpStore';
 
 type ImportMode = 'uri' | 'text';
 type SuiteView = 'none' | 'save' | 'list';
+
+interface GroupedImportErrors {
+  format: string[];
+  secret: string[];
+  combination: string[];
+}
 
 export function BatchTestPanel() {
   const {
     batchTestItems,
     batchSuites,
+    activeBatchSuiteId,
     runBatchTest,
     clearBatchTestItems,
     importBatchFromUris,
@@ -43,15 +53,18 @@ export function BatchTestPanel() {
     loadBatchSuite,
     deleteBatchSuite,
     updateBatchSuite,
+    appendSnapshotToActiveSuite,
   } = useTotpStore();
 
   const [expanded, setExpanded] = useState(false);
   const [importMode, setImportMode] = useState<ImportMode>('uri');
   const [importText, setImportText] = useState('');
-  const [importErrors, setImportErrors] = useState<string[]>([]);
+  const [importErrors, setImportErrors] = useState<GroupedImportErrors | null>(null);
+  const [importTotalErrors, setImportTotalErrors] = useState(0);
   const [suiteView, setSuiteView] = useState<SuiteView>('none');
   const [suiteName, setSuiteName] = useState('');
   const [expandedSuiteId, setExpandedSuiteId] = useState<string | null>(null);
+  const [expandedSnapshotId, setExpandedSnapshotId] = useState<string | null>(null);
 
   const passCount = batchTestItems.filter((i) => i.status === 'pass').length;
   const failCount = batchTestItems.filter((i) => i.status === 'fail').length;
@@ -64,11 +77,18 @@ export function BatchTestPanel() {
     let result;
     if (importMode === 'uri') {
       result = importBatchFromUris(importText);
+      setImportErrors(result.groupedErrors);
+      setImportTotalErrors(result.errors.length);
     } else {
       result = importBatchFromText(importText);
+      setImportErrors({
+        format: result.errors,
+        secret: [],
+        combination: [],
+      });
+      setImportTotalErrors(result.errors.length);
     }
 
-    setImportErrors(result.errors);
     if (result.success > 0) {
       setImportText('');
     }
@@ -192,7 +212,8 @@ export function BatchTestPanel() {
               <button
                 onClick={() => {
                   clearBatchTestItems();
-                  setImportErrors([]);
+                  setImportErrors(null);
+                  setImportTotalErrors(0);
                 }}
                 disabled={batchTestItems.length === 0}
                 className="px-4 py-2 bg-slate-700 hover:bg-slate-600 disabled:bg-slate-800 disabled:text-slate-600 disabled:cursor-not-allowed rounded-lg text-slate-300 text-xs transition-all flex items-center gap-1.5"
@@ -203,18 +224,74 @@ export function BatchTestPanel() {
             </div>
           </div>
 
-          {importErrors.length > 0 && (
-            <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-3 space-y-1">
-              {importErrors.slice(0, 5).map((err, i) => (
-                <p key={i} className="text-red-400 text-xs flex items-start gap-1">
-                  <AlertCircle size={12} className="mt-0.5 flex-shrink-0" />
-                  {err}
-                </p>
-              ))}
-              {importErrors.length > 5 && (
-                <p className="text-red-400/70 text-xs pl-4">
-                  还有 {importErrors.length - 5} 条错误...
-                </p>
+          {importErrors && importTotalErrors > 0 && (
+            <div className="space-y-2">
+              <div className="text-xs text-rose-400 font-medium flex items-center gap-1.5">
+                <AlertCircle size={13} />
+                导入失败 {importTotalErrors} 条，按原因分类：
+              </div>
+
+              {importErrors.format.length > 0 && (
+                <div className="bg-rose-500/10 border border-rose-500/30 rounded-lg p-2.5 space-y-1">
+                  <div className="text-[11px] font-medium text-rose-300 flex items-center gap-1.5">
+                    <FileText size={11} />
+                    参数格式问题 ({importErrors.format.length} 条)
+                  </div>
+                  <div className="max-h-20 overflow-y-auto space-y-0.5">
+                    {importErrors.format.slice(0, 4).map((err, i) => (
+                      <p key={i} className="text-[10px] text-rose-400/90 pl-4">
+                        {err}
+                      </p>
+                    ))}
+                    {importErrors.format.length > 4 && (
+                      <p className="text-[10px] text-rose-400/50 pl-4">
+                        还有 {importErrors.format.length - 4} 条...
+                      </p>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {importErrors.secret.length > 0 && (
+                <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg p-2.5 space-y-1">
+                  <div className="text-[11px] font-medium text-amber-300 flex items-center gap-1.5">
+                    <Key size={11} />
+                    密钥不合法 ({importErrors.secret.length} 条)
+                  </div>
+                  <div className="max-h-20 overflow-y-auto space-y-0.5">
+                    {importErrors.secret.slice(0, 4).map((err, i) => (
+                      <p key={i} className="text-[10px] text-amber-400/90 pl-4">
+                        {err}
+                      </p>
+                    ))}
+                    {importErrors.secret.length > 4 && (
+                      <p className="text-[10px] text-amber-400/50 pl-4">
+                        还有 {importErrors.secret.length - 4} 条...
+                      </p>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {importErrors.combination.length > 0 && (
+                <div className="bg-purple-500/10 border border-purple-500/30 rounded-lg p-2.5 space-y-1">
+                  <div className="text-[11px] font-medium text-purple-300 flex items-center gap-1.5">
+                    <Zap size={11} />
+                    组合冲突 ({importErrors.combination.length} 条)
+                  </div>
+                  <div className="max-h-20 overflow-y-auto space-y-0.5">
+                    {importErrors.combination.slice(0, 4).map((err, i) => (
+                      <p key={i} className="text-[10px] text-purple-400/90 pl-4">
+                        {err}
+                      </p>
+                    ))}
+                    {importErrors.combination.length > 4 && (
+                      <p className="text-[10px] text-purple-400/50 pl-4">
+                        还有 {importErrors.combination.length - 4} 条...
+                      </p>
+                    )}
+                  </div>
+                </div>
               )}
             </div>
           )}
@@ -370,34 +447,101 @@ export function BatchTestPanel() {
                               </div>
                               {s.snapshots.length > 0 && (
                                 <div className="space-y-1 pt-1">
-                                  <div className="text-[10px] text-slate-400">历史运行快照：</div>
+                                  <div className="text-[10px] text-slate-400">历史运行快照（最近 5 次）：</div>
                                   {s.snapshots
                                     .slice()
                                     .reverse()
                                     .slice(0, 5)
-                                    .map((snap) => (
+                                    .map((snap: BatchTestSnapshot) => (
                                       <div
                                         key={snap.id}
-                                        className="flex items-center justify-between text-[10px] bg-slate-900/50 rounded px-2 py-1"
+                                        className="bg-slate-900/50 rounded overflow-hidden"
                                       >
-                                        <span className="text-slate-500 font-mono">
-                                          {new Date(snap.createdAt).toLocaleString()}
-                                        </span>
-                                        <div className="flex items-center gap-2">
-                                          <span className="text-emerald-400">
-                                            ✓ {snap.passCount}
+                                        <button
+                                          onClick={() =>
+                                            setExpandedSnapshotId(
+                                              expandedSnapshotId === snap.id ? null : snap.id
+                                            )
+                                          }
+                                          className="w-full flex items-center justify-between text-[10px] px-2 py-1 hover:bg-slate-800/50 transition-colors"
+                                        >
+                                          <span className="text-slate-500 font-mono flex items-center gap-1">
+                                            <Eye size={10} className="text-slate-600" />
+                                            {new Date(snap.createdAt).toLocaleString()}
                                           </span>
-                                          {snap.failCount > 0 && (
-                                            <span className="text-rose-400">
-                                              ✗ {snap.failCount}
+                                          <div className="flex items-center gap-2">
+                                            <span className="text-emerald-400">
+                                              ✓ {snap.passCount}
                                             </span>
-                                          )}
-                                          {snap.errorCount > 0 && (
-                                            <span className="text-amber-400">
-                                              ! {snap.errorCount}
-                                            </span>
-                                          )}
-                                        </div>
+                                            {snap.failCount > 0 && (
+                                              <span className="text-rose-400">
+                                                ✗ {snap.failCount}
+                                              </span>
+                                            )}
+                                            {snap.errorCount > 0 && (
+                                              <span className="text-amber-400">
+                                                ! {snap.errorCount}
+                                              </span>
+                                            )}
+                                            {expandedSnapshotId === snap.id ? (
+                                              <ChevronUp size={10} className="text-slate-500" />
+                                            ) : (
+                                              <ChevronDown size={10} className="text-slate-500" />
+                                            )}
+                                          </div>
+                                        </button>
+                                        {expandedSnapshotId === snap.id && (
+                                          <div className="border-t border-slate-700/50 p-2 space-y-1 max-h-40 overflow-y-auto animate-fade-in">
+                                            {snap.items.map((item, idx) => (
+                                              <div
+                                                key={idx}
+                                                className="flex items-center gap-2 text-[10px] font-mono"
+                                              >
+                                                <span
+                                                  className={
+                                                    item.status === 'pass'
+                                                      ? 'text-emerald-400'
+                                                      : item.status === 'fail'
+                                                      ? 'text-rose-400'
+                                                      : 'text-amber-400'
+                                                  }
+                                                >
+                                                  {item.status === 'pass'
+                                                    ? '✓'
+                                                    : item.status === 'fail'
+                                                    ? '✗'
+                                                    : '!'}
+                                                </span>
+                                                <span className="text-slate-400 flex-1 truncate">
+                                                  {item.secret.slice(0, 8)}
+                                                </span>
+                                                <span className="text-slate-500">
+                                                  {item.algorithm === 'SHA-1'
+                                                    ? 'S1'
+                                                    : item.algorithm === 'SHA-256'
+                                                    ? 'S256'
+                                                    : 'S512'}
+                                                </span>
+                                                <span className="text-slate-300 w-16 text-right">
+                                                  {item.expectedCode || '—'}
+                                                </span>
+                                                <ArrowRight
+                                                  size={10}
+                                                  className="text-slate-600 flex-shrink-0"
+                                                />
+                                                <span
+                                                  className={`w-16 ${
+                                                    item.match
+                                                      ? 'text-emerald-400'
+                                                      : 'text-rose-400'
+                                                  }`}
+                                                >
+                                                  {item.actualCode || '—'}
+                                                </span>
+                                              </div>
+                                            ))}
+                                          </div>
+                                        )}
                                       </div>
                                     ))}
                                 </div>

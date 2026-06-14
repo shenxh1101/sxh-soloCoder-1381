@@ -107,6 +107,7 @@ export function TimeDebugPanel() {
     stopPlayback,
     advancePlayback,
     clearPlaybackTrace,
+    exportPlaybackTrace,
   } = useTotpStore();
 
   const [mode, setMode] = useState<TimeMode>('live');
@@ -119,7 +120,6 @@ export function TimeDebugPanel() {
   const [newStepValue, setNewStepValue] = useState<string>('10');
   const [newStepUnit, setNewStepUnit] = useState<TimeScriptStep['unit']>('s');
   const playbackTimerRef = useRef<number | null>(null);
-  const waitTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -135,31 +135,28 @@ export function TimeDebugPanel() {
   }, [mode, setCustomTime]);
 
   useEffect(() => {
-    function scheduleNext(delay?: number) {
-      if (waitTimerRef.current) {
-        clearTimeout(waitTimerRef.current);
-        waitTimerRef.current = null;
-      }
-      if (playbackTimerRef.current) {
-        clearTimeout(playbackTimerRef.current);
-        playbackTimerRef.current = null;
+    let timer: number | null = null;
+
+    async function scheduleNext(delay?: number) {
+      if (timer) {
+        clearTimeout(timer);
+        timer = null;
       }
       if (!playback.isPlaying || playback.isPaused) return;
       const useDelay = delay ?? Math.max(100, 1000 / playback.speed);
-      playbackTimerRef.current = window.setTimeout(() => {
-        const res = advancePlayback();
+      timer = window.setTimeout(async () => {
+        const res = await advancePlayback();
         if (res && !res.completed) {
-          scheduleNext(res.waitMs);
+          await scheduleNext(res.waitMs);
         }
       }, useDelay);
     }
 
     if (playback.isPlaying && !playback.isPaused) {
-      scheduleNext();
+      void scheduleNext();
     }
     return () => {
-      if (waitTimerRef.current) clearTimeout(waitTimerRef.current);
-      if (playbackTimerRef.current) clearTimeout(playbackTimerRef.current);
+      if (timer) clearTimeout(timer);
     };
   }, [playback.isPlaying, playback.isPaused, playback.speed, advancePlayback]);
 
@@ -701,38 +698,61 @@ export function TimeDebugPanel() {
                         <List size={11} />
                         执行轨迹 · 共 {playback.trace.length} 步
                       </span>
+                      <div className="flex items-center gap-1">
+                        <button
+                          onClick={() => {
+                            const text = exportPlaybackTrace();
+                            navigator.clipboard.writeText(text);
+                          }}
+                          className="px-2 py-0.5 text-[10px] bg-slate-700/50 hover:bg-slate-700 rounded text-slate-300 hover:text-white transition-all flex items-center gap-1"
+                          title="导出轨迹到剪贴板"
+                        >
+                          <Copy size={10} />
+                          导出
+                        </button>
+                      </div>
                     </div>
-                    <div className="max-h-40 overflow-y-auto">
+                    <div className="max-h-48 overflow-y-auto">
                       {playback.trace.map((t: PlaybackTraceStep, i: number) => (
                         <div
                           key={t.id}
-                          className="flex items-center gap-2 px-3 py-1.5 text-[11px] border-b border-slate-800 last:border-0"
+                          className="px-3 py-1.5 text-[11px] border-b border-slate-800 last:border-0"
                         >
-                          <span className="text-slate-600 font-mono w-6 text-right">{i + 1}.</span>
-                          <span
-                            className={`px-1.5 py-0.5 rounded text-[10px] ${
-                              t.action === 'wait'
-                                ? 'bg-amber-500/20 text-amber-400'
-                                : t.action === 'jump'
-                                ? 'bg-cyan-500/20 text-cyan-400'
-                                : 'bg-emerald-500/20 text-emerald-400'
-                            }`}
-                          >
-                            {t.action === 'wait' ? '等待' : t.action === 'jump' ? '跳到' : '偏移'}
-                          </span>
-                          <span className="text-slate-300 font-mono">
-                            {t.value}
-                            {t.unit === 'period' ? '周期' : t.unit}
-                          </span>
-                          <ArrowRight size={10} className="text-slate-600" />
-                          <span className="text-slate-400 font-mono">
-                            {new Date(t.effectiveTimeAfter).toLocaleTimeString()}
-                          </span>
-                          {t.durationMs > 0 && (
-                            <span className="ml-auto text-slate-500 text-[10px]">
-                              等待 {(t.durationMs / 1000).toFixed(2)}s
+                          <div className="flex items-center gap-2">
+                            <span className="text-slate-600 font-mono w-6 text-right">{i + 1}.</span>
+                            <span
+                              className={`px-1.5 py-0.5 rounded text-[10px] ${
+                                t.action === 'wait'
+                                  ? 'bg-amber-500/20 text-amber-400'
+                                  : t.action === 'jump'
+                                  ? 'bg-cyan-500/20 text-cyan-400'
+                                  : 'bg-emerald-500/20 text-emerald-400'
+                              }`}
+                            >
+                              {t.action === 'wait' ? '等待' : t.action === 'jump' ? '跳到' : '偏移'}
                             </span>
-                          )}
+                            <span className="text-slate-300 font-mono">
+                              {t.value}
+                              {t.unit === 'period' ? '周期' : t.unit}
+                            </span>
+                            <span className="ml-auto font-mono text-cyan-300 text-[11px]">
+                              {t.code}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-2 text-[10px] text-slate-500 mt-0.5 pl-8">
+                            <span>
+                              {new Date(t.startedAt).toLocaleTimeString()}
+                            </span>
+                            <ArrowRight size={8} />
+                            <span>
+                              {new Date(t.endedAt).toLocaleTimeString()}
+                            </span>
+                            {t.durationMs > 0 && (
+                              <span className="ml-auto">
+                                耗时 {(t.durationMs / 1000).toFixed(2)}s
+                              </span>
+                            )}
+                          </div>
                         </div>
                       ))}
                     </div>

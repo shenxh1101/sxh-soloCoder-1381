@@ -10,6 +10,8 @@ export interface OtpAuthParams {
   algorithm?: HashAlgorithm;
 }
 
+export type UriErrorCategory = 'format' | 'secret' | 'combination';
+
 export interface UriValidationResult {
   valid: boolean;
   errors: string[];
@@ -22,6 +24,7 @@ export interface UriValidationResult {
     issuer?: string;
     label?: string;
   };
+  errorCategories: UriErrorCategory[];
 }
 
 const VALID_ALGORITHMS = ['SHA1', 'SHA256', 'SHA512', 'SHA-1', 'SHA-256', 'SHA-512'];
@@ -35,21 +38,22 @@ export function validateOtpAuthUri(uri: string): UriValidationResult {
   const errors: string[] = [];
   const warnings: string[] = [];
   const paramErrors: UriValidationResult['paramErrors'] = {};
+  const errorCategories: Set<UriErrorCategory> = new Set();
 
   if (!uri) {
-    return { valid: false, errors: ['URI 不能为空'], warnings: [], paramErrors };
+    return { valid: false, errors: ['URI 不能为空'], warnings: [], paramErrors, errorCategories: ['format'] };
   }
 
   if (!uri.startsWith('otpauth://')) {
     errors.push('URI 必须以 otpauth:// 开头');
-    return { valid: false, errors, warnings, paramErrors };
+    return { valid: false, errors, warnings, paramErrors, errorCategories: ['format'] };
   }
 
   if (!uri.startsWith('otpauth://totp/')) {
     const typeMatch = uri.match(/^otpauth:\/\/(\w+)\//);
     const type = typeMatch ? typeMatch[1] : 'unknown';
     errors.push(`仅支持 TOTP 类型，当前是 "${type}"，请使用 otpauth://totp/ 开头`);
-    return { valid: false, errors, warnings, paramErrors };
+    return { valid: false, errors, warnings, paramErrors, errorCategories: ['format'] };
   }
 
   try {
@@ -83,14 +87,17 @@ export function validateOtpAuthUri(uri: string): UriValidationResult {
     if (!secret) {
       paramErrors.secret = '缺少必需参数 secret';
       errors.push(paramErrors.secret);
+      errorCategories.add('secret');
     } else if (!secret.trim()) {
       paramErrors.secret = 'secret 为空字符串';
       errors.push(paramErrors.secret);
+      errorCategories.add('secret');
     } else {
       const cleanSecret = secret.toUpperCase().replace(/\s/g, '');
       if (cleanSecret.length < 4) {
         paramErrors.secret = `secret 过短（${cleanSecret.length} 位），至少需要 4 个 Base32 字符`;
         errors.push(paramErrors.secret);
+        errorCategories.add('secret');
       } else {
         const invalidChars: string[] = [];
         for (const ch of cleanSecret) {
@@ -101,6 +108,7 @@ export function validateOtpAuthUri(uri: string): UriValidationResult {
         if (invalidChars.length > 0) {
           paramErrors.secret = `secret 包含无效字符：${invalidChars.map((c) => `"${c}"`).join('、')}（仅允许 A-Z, 2-7）`;
           errors.push(paramErrors.secret);
+          errorCategories.add('secret');
         } else if (cleanSecret.length % 8 !== 0 && cleanSecret.includes('=')) {
           warnings.push('secret 填充符位置不标准，部分客户端可能不兼容');
         }
@@ -113,20 +121,25 @@ export function validateOtpAuthUri(uri: string): UriValidationResult {
       if (digits === '') {
         paramErrors.digits = 'digits 为空值';
         errors.push(paramErrors.digits);
+        errorCategories.add('format');
       } else if (!/^\d+$/.test(digits.trim())) {
         paramErrors.digits = `digits 含有非数字字符："${digits}"，必须是纯整数`;
         errors.push(paramErrors.digits);
+        errorCategories.add('format');
       } else if (digits.trim() !== digits) {
         paramErrors.digits = `digits 含有多余空白字符："${digits}"`;
         errors.push(paramErrors.digits);
+        errorCategories.add('format');
       } else {
         const d = parseInt(digits, 10);
         if (isNaN(d)) {
           paramErrors.digits = `digits 不是有效数字："${digits}"`;
           errors.push(paramErrors.digits);
+          errorCategories.add('format');
         } else if (!VALID_DIGITS.includes(d)) {
           paramErrors.digits = `digits 不支持 ${d} 位，仅允许：${VALID_DIGITS.join(', ')}`;
           errors.push(paramErrors.digits);
+          errorCategories.add('format');
         } else if (d !== 6) {
           warnings.push(`digits=${d} 为非默认值，部分客户端可能不支持`);
         }
@@ -139,20 +152,25 @@ export function validateOtpAuthUri(uri: string): UriValidationResult {
       if (period === '') {
         paramErrors.period = 'period 为空值';
         errors.push(paramErrors.period);
+        errorCategories.add('format');
       } else if (!/^\d+$/.test(period.trim())) {
         paramErrors.period = `period 含有非数字字符："${period}"，必须是纯整数秒数`;
         errors.push(paramErrors.period);
+        errorCategories.add('format');
       } else if (period.trim() !== period) {
         paramErrors.period = `period 含有多余空白字符："${period}"`;
         errors.push(paramErrors.period);
+        errorCategories.add('format');
       } else {
         const p = parseInt(period, 10);
         if (isNaN(p)) {
           paramErrors.period = `period 不是有效数字："${period}"`;
           errors.push(paramErrors.period);
+          errorCategories.add('format');
         } else if (p < MIN_PERIOD || p > MAX_PERIOD) {
           paramErrors.period = `period=${p} 超出允许范围（${MIN_PERIOD}-${MAX_PERIOD} 秒）`;
           errors.push(paramErrors.period);
+          errorCategories.add('format');
         } else if (p < RECOMMENDED_PERIOD_MIN) {
           warnings.push(`period=${p} 秒过短，低于推荐最小值 ${RECOMMENDED_PERIOD_MIN} 秒，可能影响安全性`);
         } else if (p > RECOMMENDED_PERIOD_MAX) {
@@ -169,22 +187,42 @@ export function validateOtpAuthUri(uri: string): UriValidationResult {
       if (algorithm === '') {
         paramErrors.algorithm = 'algorithm 为空值';
         errors.push(paramErrors.algorithm);
+        errorCategories.add('format');
       } else if (algorithm.trim() !== algorithm) {
         paramErrors.algorithm = `algorithm 含有多余空白字符："${algorithm}"`;
         errors.push(paramErrors.algorithm);
+        errorCategories.add('format');
       } else if (!VALID_ALGORITHMS.includes(algorithm.toUpperCase())) {
         paramErrors.algorithm = `algorithm 不支持 "${algorithm}"，仅允许：SHA1, SHA256, SHA512（大小写均可）`;
         errors.push(paramErrors.algorithm);
-      } else if (!['SHA1', 'SHA-1'].includes(algorithm.toUpperCase())) {
-        warnings.push(`algorithm=${algorithm} 为非默认值，Google Authenticator 可能不支持`);
+        errorCategories.add('format');
       }
     }
 
-    // 组合合理性校验
+    // 组合合理性校验 - 不合理组合直接拦截
     const alg = (algorithm || '').toUpperCase().replace('-', '');
     const dParsed = digits ? parseInt(digits, 10) : 6;
+    const pParsed = period ? parseInt(period, 10) : 30;
+
     if (alg === 'SHA1' && dParsed > 6) {
-      warnings.push('SHA-1 搭配 7/8 位码在部分客户端中兼容性较差');
+      const msg = `组合不合理：SHA-1 搭配 ${dParsed} 位码在多数客户端中不兼容，不允许使用`;
+      errors.push(msg);
+      errorCategories.add('combination');
+      paramErrors.digits = paramErrors.digits || msg;
+    }
+
+    if (pParsed > 0 && pParsed < 10) {
+      const msg = `组合不合理：period=${pParsed}s 过短，安全性不足，不允许使用`;
+      errors.push(msg);
+      errorCategories.add('combination');
+      paramErrors.period = paramErrors.period || msg;
+    }
+
+    if (pParsed > 300) {
+      const msg = `组合不合理：period=${pParsed}s 过长，动态密码失去时效性，不允许使用`;
+      errors.push(msg);
+      errorCategories.add('combination');
+      paramErrors.period = paramErrors.period || msg;
     }
 
     // issuer 参数一致性检查
@@ -202,6 +240,7 @@ export function validateOtpAuthUri(uri: string): UriValidationResult {
     }
   } catch (e) {
     errors.push('URI 格式解析失败，可能存在非法字符或编码错误');
+    errorCategories.add('format');
   }
 
   return {
@@ -209,6 +248,7 @@ export function validateOtpAuthUri(uri: string): UriValidationResult {
     errors,
     warnings,
     paramErrors,
+    errorCategories: Array.from(errorCategories),
   };
 }
 

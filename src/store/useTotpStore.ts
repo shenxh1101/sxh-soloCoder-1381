@@ -67,9 +67,12 @@ export interface PlaybackTraceStep {
   value: number;
   unit: 'ms' | 's' | 'm' | 'period';
   executedAt: number;
+  startedAt: number;
+  endedAt: number;
   effectiveTimeBefore: number;
   effectiveTimeAfter: number;
   durationMs: number;
+  code: string;
 }
 
 export interface BatchTestItem {
@@ -105,6 +108,9 @@ export interface TimePlaybackState {
   speed: number;
   loop: boolean;
   trace: PlaybackTraceStep[];
+  waitRemainingMs: number | null;
+  waitTotalMs: number | null;
+  waitStartedAt: number | null;
 }
 
 const BATCH_SUITES_KEY = 'totp.batchSuites.v1';
@@ -125,6 +131,7 @@ interface TotpState {
 
   batchTestItems: BatchTestItem[];
   batchSuites: BatchTestSuite[];
+  activeBatchSuiteId: string | null;
 
   playback: TimePlaybackState;
 
@@ -154,13 +161,23 @@ interface TotpState {
   removeBatchTestItem: (id: string) => void;
   clearBatchTestItems: () => void;
   runBatchTest: () => Promise<void>;
-  importBatchFromUris: (uris: string) => { total: number; success: number; errors: string[] };
+  importBatchFromUris: (uris: string) => {
+    total: number;
+    success: number;
+    errors: string[];
+    groupedErrors: {
+      format: string[];
+      secret: string[];
+      combination: string[];
+    };
+  };
   importBatchFromText: (text: string) => { total: number; success: number; errors: string[] };
 
   saveBatchSuite: (name: string, withSnapshot?: boolean) => BatchTestSuite;
   loadBatchSuite: (id: string) => void;
   deleteBatchSuite: (id: string) => void;
   updateBatchSuite: (id: string, patch: Partial<BatchTestSuite>) => void;
+  appendSnapshotToActiveSuite: () => BatchTestSnapshot | null;
 
   setPlaybackSteps: (steps: Omit<TimeScriptStep, 'id'>[]) => void;
   addPlaybackStep: (step: Omit<TimeScriptStep, 'id'>) => void;
@@ -171,8 +188,9 @@ interface TotpState {
   startPlayback: (resume?: boolean) => void;
   pausePlayback: () => void;
   stopPlayback: () => void;
-  advancePlayback: () => { completed: boolean; waitMs?: number } | null;
+  advancePlayback: () => Promise<{ completed: boolean; waitMs?: number } | null>;
   clearPlaybackTrace: () => void;
+  exportPlaybackTrace: () => string;
 
   setDualClockEnabled: (enabled: boolean) => void;
   setDualClockDevice: (device: 'A' | 'B', patch: Partial<DualClockConfig['deviceA']>) => void;
@@ -216,6 +234,7 @@ export const useTotpStore = create<TotpState>((set, get) => ({
 
   batchTestItems: [],
   batchSuites: loadSuitesFromStorage(),
+  activeBatchSuiteId: null,
 
   playback: {
     isPlaying: false,
@@ -225,6 +244,9 @@ export const useTotpStore = create<TotpState>((set, get) => ({
     speed: 1,
     loop: false,
     trace: [],
+    waitRemainingMs: null,
+    waitTotalMs: null,
+    waitStartedAt: null,
   },
 
   dualClock: {
@@ -346,6 +368,29 @@ export const useTotpStore = create<TotpState>((set, get) => ({
       }
     }
     set({ batchTestItems: updated });
+
+    // 如果当前有活跃方案，自动追加快照
+    const stateAfter = get();
+    if (stateAfter.activeBatchSuiteId) {
+      const suite = stateAfter.batchSuites.find((s) => s.id === stateAfter.activeBatchSuiteId);
+      if (suite) {
+        const snapshot: BatchTestSnapshot = {
+          id: Math.random().toString(36).slice(2),
+          createdAt: Date.now(),
+          items: updated,
+          passCount: updated.filter((i) => i.status === 'pass').length,
+          failCount: updated.filter((i) => i.status === 'fail').length,
+          errorCount: updated.filter((i) => i.status === 'error').length,
+        };
+        const nextSuites = stateAfter.batchSuites.map((s) =>
+          s.id === suite.id
+            ? { ...s, snapshots: [...s.snapshots, snapshot], updatedAt: Date.now() }
+            : s
+        );
+        saveSuitesToStorage(nextSuites);
+        set({ batchSuites: nextSuites });
+      }
+    }
   },
   saveBatchSuite: (name, withSnapshot = true) => {
     const state = get();
@@ -376,7 +421,7 @@ export const useTotpStore = create<TotpState>((set, get) => ({
 
     const next = [...state.batchSuites, suite];
     saveSuitesToStorage(next);
-    set({ batchSuites: next });
+    set({ batchSuites: next, activeBatchSuiteId: suite.id });
     return suite;
   },
   loadBatchSuite: (id) => {
@@ -386,7 +431,7 @@ export const useTotpStore = create<TotpState>((set, get) => ({
       ...it,
       status: 'pending' as const,
     }));
-    set({ batchTestItems: items });
+    set({ batchTestItems: items, activeBatchSuiteId: id });
   },
   deleteBatchSuite: (id) => {
     const next = get().batchSuites.filter((s) => s.id !== id);
@@ -398,23 +443,69 @@ export const useTotpStore = create<TotpState>((set, get) => ({
     saveSuitesToStorage(next);
     set({ batchSuites: next });
   },
+  appendSnapshotToActiveSuite: () => {
+    const state = get();
+    if (!state.activeBatchSuiteId) return null;
+    if (state.batchTestItems.length === 0) return null;
+    if (state.batchTestItems.some((i) => i.status === 'pending')) return null;
+
+    const snapshot: BatchTestSnapshot = {
+      id: Math.random().toString(36).slice(2),
+      createdAt: Date.now(),
+      items: state.batchTestItems,
+      passCount: state.batchTestItems.filter((i) => i.status === 'pass').length,
+      failCount: state.batchTestItems.filter((i) => i.status === 'fail').length,
+      errorCount: state.batchTestItems.filter((i) => i.status === 'error').length,
+    };
+
+    const nextSuites = state.batchSuites.map((s) =>
+      s.id === state.activeBatchSuiteId
+        ? { ...s, snapshots: [...s.snapshots, snapshot], updatedAt: Date.now() }
+        : s
+    );
+    saveSuitesToStorage(nextSuites);
+    set({ batchSuites: nextSuites });
+    return snapshot;
+  },
   importBatchFromUris: (uriText) => {
     const uris = uriText
       .split(/[\n,;]+/)
       .map((u) => u.trim())
       .filter(Boolean);
     const errors: string[] = [];
+    const groupedErrors = {
+      format: [] as string[],
+      secret: [] as string[],
+      combination: [] as string[],
+    };
     const items: BatchTestItem[] = [];
 
     uris.forEach((uri, idx) => {
       const validation = validateOtpAuthUri(uri);
       if (!validation.valid) {
-        errors.push(`第 ${idx + 1} 条：${validation.errors[0]}`);
+        const firstErr = validation.errors[0] || '校验失败';
+        const line = `第 ${idx + 1} 条：${firstErr}`;
+        errors.push(line);
+        if (validation.errorCategories.includes('format')) {
+          groupedErrors.format.push(line);
+        }
+        if (validation.errorCategories.includes('secret')) {
+          groupedErrors.secret.push(line);
+        }
+        if (validation.errorCategories.includes('combination')) {
+          groupedErrors.combination.push(line);
+        }
+        // 如果都没匹配到，归到 format
+        if (validation.errorCategories.length === 0) {
+          groupedErrors.format.push(line);
+        }
         return;
       }
       const params = parseOtpAuthUri(uri);
       if (!params) {
-        errors.push(`第 ${idx + 1} 条：解析失败`);
+        const line = `第 ${idx + 1} 条：解析失败`;
+        errors.push(line);
+        groupedErrors.format.push(line);
         return;
       }
       items.push({
@@ -431,7 +522,7 @@ export const useTotpStore = create<TotpState>((set, get) => ({
     });
 
     set({ batchTestItems: items });
-    return { total: uris.length, success: items.length, errors };
+    return { total: uris.length, success: items.length, errors, groupedErrors };
   },
   importBatchFromText: (text) => {
     const lines = text.split(/\n+/).map((l) => l.trim()).filter(Boolean);
@@ -537,18 +628,65 @@ export const useTotpStore = create<TotpState>((set, get) => ({
       };
     }),
   pausePlayback: () =>
-    set((state) => ({ playback: { ...state.playback, isPaused: true } })),
+    set((state) => {
+      // 如果正在等待，计算剩余等待时间
+      let waitRemainingMs: number | null = null;
+      if (state.playback.waitStartedAt !== null && state.playback.waitTotalMs !== null) {
+        const elapsed = Date.now() - state.playback.waitStartedAt;
+        waitRemainingMs = Math.max(0, state.playback.waitTotalMs - elapsed);
+      }
+      return {
+        playback: {
+          ...state.playback,
+          isPaused: true,
+          waitRemainingMs,
+        },
+      };
+    }),
   stopPlayback: () =>
     set((state) => ({
-      playback: { ...state.playback, isPlaying: false, isPaused: false, currentStepIndex: 0 },
+      playback: {
+        ...state.playback,
+        isPlaying: false,
+        isPaused: false,
+        currentStepIndex: 0,
+        waitRemainingMs: null,
+        waitTotalMs: null,
+        waitStartedAt: null,
+      },
     })),
   clearPlaybackTrace: () =>
     set((state) => ({ playback: { ...state.playback, trace: [] } })),
-  advancePlayback: () => {
+  exportPlaybackTrace: () => {
+    const { trace } = get().playback;
+    const lines = trace.map((t, i) => {
+      const startStr = new Date(t.startedAt).toLocaleString();
+      const endStr = new Date(t.endedAt).toLocaleString();
+      const actionName = t.action === 'wait' ? '等待' : t.action === 'jump' ? '跳到' : '偏移';
+      return `#${i + 1} ${actionName} ${t.value}${t.unit === 'period' ? '周期' : t.unit} | 开始: ${startStr} | 结束: ${endStr} | 码: ${t.code} | 耗时: ${(t.durationMs / 1000).toFixed(2)}s`;
+    });
+    return lines.join('\n');
+  },
+  advancePlayback: async () => {
     const state = get();
-    const { steps, currentStepIndex, isPlaying, isPaused, loop, speed } = state.playback;
+    const { steps, currentStepIndex, isPlaying, isPaused, loop, speed, waitRemainingMs } = state.playback;
 
     if (!isPlaying || isPaused || steps.length === 0) return null;
+
+    // 如果有剩余等待时间，说明上次暂停在等待中，这次先把剩余等待走完
+    if (waitRemainingMs !== null && waitRemainingMs > 0) {
+      const waitMs = waitRemainingMs;
+      const startedAt = Date.now();
+      set((s) => ({
+        playback: {
+          ...s.playback,
+          waitStartedAt: startedAt,
+          waitTotalMs: waitMs,
+          waitRemainingMs: null,
+        },
+      }));
+      return { completed: false, waitMs };
+    }
 
     const step = steps[currentStepIndex];
     if (!step) {
@@ -556,13 +694,21 @@ export const useTotpStore = create<TotpState>((set, get) => ({
         set((s) => ({ playback: { ...s.playback, currentStepIndex: 0 } }));
         return { completed: false };
       } else {
-        set((s) => ({ playback: { ...s.playback, isPlaying: false } }));
+        set((s) => ({
+          playback: {
+            ...s.playback,
+            isPlaying: false,
+            waitStartedAt: null,
+            waitTotalMs: null,
+            waitRemainingMs: null,
+          },
+        }));
         return { completed: true };
       }
     }
 
     let waitMs: number | undefined;
-    const executedAt = Date.now();
+    const startedAt = Date.now();
     const timeBefore = getEffectiveNow();
     let timeAfter = timeBefore;
 
@@ -595,6 +741,16 @@ export const useTotpStore = create<TotpState>((set, get) => ({
       }
     }
 
+    // 计算执行后的验证码
+    const code = await generateTOTP(state.secret, {
+      digits: state.digits,
+      period: state.period,
+      algorithm: state.algorithm,
+      timestamp: timeAfter,
+    });
+
+    const endedAt = waitMs ? startedAt + waitMs : startedAt;
+
     const traceStep: PlaybackTraceStep = {
       id: Math.random().toString(36).slice(2),
       stepIndex: currentStepIndex,
@@ -602,14 +758,22 @@ export const useTotpStore = create<TotpState>((set, get) => ({
       action: step.action,
       value: step.value,
       unit: step.unit,
-      executedAt,
+      executedAt: startedAt,
+      startedAt,
+      endedAt,
       effectiveTimeBefore: timeBefore,
       effectiveTimeAfter: timeAfter,
       durationMs: waitMs ?? 0,
+      code,
     };
 
     const nextIdx = currentStepIndex + 1;
     let finished = false;
+
+    // 如果是 wait 步骤，设置等待开始时间
+    const waitStart = waitMs ? startedAt : null;
+    const waitTotal = waitMs ?? null;
+
     if (nextIdx >= steps.length) {
       if (loop) {
         set((s) => ({
@@ -617,6 +781,9 @@ export const useTotpStore = create<TotpState>((set, get) => ({
             ...s.playback,
             currentStepIndex: 0,
             trace: [...s.playback.trace, traceStep],
+            waitStartedAt: waitStart,
+            waitTotalMs: waitTotal,
+            waitRemainingMs: null,
           },
         }));
       } else {
@@ -626,6 +793,9 @@ export const useTotpStore = create<TotpState>((set, get) => ({
             isPlaying: false,
             currentStepIndex: nextIdx,
             trace: [...s.playback.trace, traceStep],
+            waitStartedAt: null,
+            waitTotalMs: null,
+            waitRemainingMs: null,
           },
         }));
         finished = true;
@@ -636,6 +806,9 @@ export const useTotpStore = create<TotpState>((set, get) => ({
           ...s.playback,
           currentStepIndex: nextIdx,
           trace: [...s.playback.trace, traceStep],
+          waitStartedAt: waitStart,
+          waitTotalMs: waitTotal,
+          waitRemainingMs: null,
         },
       }));
     }
